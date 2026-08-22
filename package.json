@@ -1,0 +1,45 @@
+{
+  "name": "one-life-circle",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "displayName": "One Life Circle",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/package-sites.mjs && node scripts/validate-sites-build.mjs",
+    "preview": "vite preview",
+    "start": "vite preview",
+    "whatsapp:bridge": "node scripts/baileys-bridge.mjs",
+    "lint": "eslint .",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@vitejs/plugin-react": "6.0.2",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "eslint": "9.39.4",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.0.1",
+    "eslint-plugin-react-refresh": "0.5.2",
+    "globals": "17.4.0",
+    "vite": "^8.2.1"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  }
+}
