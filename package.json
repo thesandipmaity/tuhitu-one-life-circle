@@ -20,6 +20,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "mongodb": "^7.6.0",
     "pino": "^10.3.1",
     "qrcode-terminal": "^0.12.0",
     "react": "19.2.6",

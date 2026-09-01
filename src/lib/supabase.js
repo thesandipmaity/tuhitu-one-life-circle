@@ -72,6 +72,7 @@ function paidState(metadata = {}) {
 }
 
 export function hasSupabaseAuth() {
+  if (typeof __OLC_USE_MONGO_AUTH__ !== "undefined" && __OLC_USE_MONGO_AUTH__) return false;
   return Boolean(supabaseUrl && supabasePublishableKey);
 }
 

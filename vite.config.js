@@ -1,9 +1,14 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { handleApi } from "./worker/api.js";
+import { handleMongoApi } from "./server/mongo-api.js";
 
 function envForBackend(raw) {
   return {
+    MONGODB_URI: raw.MONGODB_URI,
+    MONGODB_DB_NAME: raw.MONGODB_DB_NAME,
+    AUTH_AUTO_CONFIRM: raw.AUTH_AUTO_CONFIRM,
+    handleApi: raw.handleApi,
     SUPABASE_URL: raw.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: raw.SUPABASE_SERVICE_ROLE_KEY,
     RAZORPAY_KEY_ID: raw.RAZORPAY_KEY_ID,
@@ -56,7 +61,9 @@ async function handleApiRequest(req, res, env) {
     headers: requestHeaders(req.headers),
     body,
   });
-  const response = await handleApi(request, env);
+  const mongoPaths = new Set(["/api/health", "/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/account"]);
+  const handler = env.MONGODB_URI && mongoPaths.has(new URL(request.url).pathname) ? handleMongoApi : (env.handleApi || handleApi);
+  const response = await handler(request, env);
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
   response.headers.forEach((value, key) => res.setHeader(key, value));
@@ -91,7 +98,8 @@ function localApiPlugin(rawEnv) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), localApiPlugin(env)],
+    define: { __OLC_USE_MONGO_AUTH__: JSON.stringify(Boolean(env.MONGODB_URI)) },
+    plugins: [react(), localApiPlugin({ ...env, handleApi: env.MONGODB_URI ? handleMongoApi : handleApi })],
     server: {
       host: "0.0.0.0",
       allowedHosts: ["terminal.local"],
