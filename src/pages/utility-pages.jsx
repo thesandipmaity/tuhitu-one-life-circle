@@ -9,7 +9,7 @@ import { Icon } from "../components/icons";
 import { catalogue, contactConfig, formatCurrency, plans, pricingForItem } from "../data/site-data";
 import { apiRequest, HAS_API_BACKEND, readableApiError } from "../lib/api";
 import { beginPayment } from "../lib/payments";
-import { getSupabaseClient, hasSupabaseAuth } from "../lib/supabase";
+import { getSupabaseClient, hasSupabaseAuth, resolveSupabaseAuthIdentifier } from "../lib/supabase";
 
 function dateLabel(value, fallback = "Activates after payment") {
   if (!value) return fallback;
@@ -24,9 +24,16 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const supabase = getSupabaseClient();
+
+  const emailNotConfirmed = /email not confirmed/i.test(error);
+
   async function submit(event) {
     event.preventDefault();
     setError("");
+    setVerificationMessage("");
     if (!identifier.trim() || !password) return setError("Enter your Member ID, email or mobile number and password.");
     setSubmitting(true);
     try {
@@ -38,6 +45,27 @@ function LoginPage() {
       setSubmitting(false);
     }
   }
+
+  async function resendVerification() {
+    if (!supabase) return;
+    setResendingVerification(true);
+    setVerificationMessage("");
+    try {
+      const resolved = await resolveSupabaseAuthIdentifier(identifier);
+      if (resolved.type !== "email") throw new Error("Email verification is available for email-based member accounts only.");
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: resolved.value,
+        options: { emailRedirectTo: `${window.location.origin}/login` },
+      });
+      if (resendError) throw resendError;
+      setVerificationMessage("Verification email sent to your registered email address. Open it once, then use your Member ID and password to log in.");
+    } catch (resendError) {
+      setError(readableApiError(resendError, "Could not resend the verification email."));
+    } finally {
+      setResendingVerification(false);
+    }
+  }
   if (member) return <UtilityShell eyebrow="MEMBER LOGIN" title="You are already signed in." copy={`${member.memberId} · ${member.statusLabel}`}><div className="hero-actions"><Link className="button button-primary" href="/account">My Account</Link>{member.canAccessStore && <Link className="button button-secondary" href="/store">Open Store</Link>}</div></UtilityShell>;
   return <section className="auth-page">
     <div className="auth-visual"><img src="/assets/inclusive-hero.webp" alt="One Life Circle members across different life stages" /><div><p className="eyebrow">ONE DIGITAL IDENTITY</p><h1>Welcome back to your Circle.</h1><p>Access your membership, digital card, protected Store, bookings and payments.</p></div></div>
@@ -46,6 +74,8 @@ function LoginPage() {
         <label className="field"><span>Member ID, email or mobile<i className="required-marker" aria-hidden="true">*</i></span><input value={identifier} onChange={(event) => setIdentifier(event.target.value)} required placeholder="OLC-LSI-26-000001" autoComplete="username" /></label>
         <div className="field password-field"><label htmlFor="member-password">Password<i className="required-marker" aria-hidden="true">*</i></label><div><input id="member-password" value={password} onChange={(event) => setPassword(event.target.value)} required type={showPassword ? "text" : "password"} autoComplete="current-password" /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}><Icon name="eye" /></button></div></div>
         {error && <div className="form-alert" role="alert"><Icon name="lock" /> {error}</div>}
+        {emailNotConfirmed && <button className="text-link" type="button" onClick={resendVerification} disabled={resendingVerification}>{resendingVerification ? "Sending verification email…" : "Resend verification email"}</button>}
+        {verificationMessage && <div className="success-inline" role="status"><Icon name="check" /> {verificationMessage}</div>}
         <div className="login-options"><label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Remember this device</label><Link href="/forgot-password">Forgot password?</Link></div>
         <button className="button button-primary button-full" type="submit" disabled={submitting}>{submitting ? "Signing in securely…" : "Member Login"} <Icon name="arrow" /></button>
       </form>
