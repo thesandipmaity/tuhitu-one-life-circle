@@ -209,6 +209,15 @@ export async function findMemberForLogin(db, field, value) {
   return one(await supabaseSelect(db, "members", { filters: { [field]: value }, limit: 1 }));
 }
 
+export async function resolveSupabaseMemberLogin(db, field, value) {
+  if (db.kind !== "supabase") return null;
+  return one(await supabaseSelect(db, "member_profiles", {
+    select: "member_id,email,mobile,status",
+    filters: { [field]: value },
+    limit: 1,
+  }));
+}
+
 export async function deleteSession(db, sessionId) {
   if (db.kind === "d1") {
     await d1Run(db, "DELETE FROM sessions WHERE id = ?", sessionId);

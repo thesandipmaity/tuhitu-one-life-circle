@@ -204,6 +204,13 @@ h3 {
   cursor: wait;
 }
 
+.button.is-disabled,
+.button[aria-disabled="true"] {
+  opacity: 0.72;
+  cursor: not-allowed;
+  filter: saturate(0.72);
+}
+
 .button-primary {
   background: linear-gradient(120deg, var(--magenta), var(--violet));
   color: white;
@@ -5848,4 +5855,17 @@ h3 {
   body * { visibility: hidden; }
   .full-card-view, .full-card-view * { visibility: visible; }
   .full-card-view { position: absolute; left: 0; top: 0; width: 100%; max-width: none; padding: 0; border: 0; box-shadow: none; }
+}
+
+/* Store MRP emphasis -------------------------------------------------- */
+.price-unlock .list-price,
+.detail-price .list-price {
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.detail-price.unlocked .list-price,
+.detail-price.locked .list-price {
+  font-size: 1.12rem;
 }

@@ -7,6 +7,7 @@ import { useApp } from "../components/app-provider";
 import { formatCurrency, plans } from "../data/site-data";
 import { apiRequest, readableApiError } from "../lib/api";
 import { beginPayment } from "../lib/payments";
+import { buildSupabaseRegistrationPayload, getSupabaseClient, hasSupabaseAuth, resolveAuthMember } from "../lib/supabase";
 
 const initialForm = {
   fullName: "",
@@ -21,6 +22,13 @@ const initialForm = {
   consent: false,
   website: "",
 };
+
+function registrationErrorMessage(error) {
+  if (error instanceof TypeError && error.message === "Failed to fetch") {
+    return "Cannot reach Supabase. Check VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local, then restart the dev server.";
+  }
+  return readableApiError(error);
+}
 
 export function MembershipRegistrationPage() {
   const navigate = useNavigate();
@@ -37,6 +45,7 @@ export function MembershipRegistrationPage() {
   const [paying, setPaying] = useState(false);
   const [copied, setCopied] = useState(false);
   const selectedPlan = plans.find((plan) => plan.id === planId) || plans[0];
+  const supabase = getSupabaseClient();
 
   function update(name, value) {
     setForm((current) => ({ ...current, [name]: value }));
@@ -66,15 +75,24 @@ export function MembershipRegistrationPage() {
     setSubmitting(true);
     setPaymentError("");
     try {
-      const response = await apiRequest("/api/auth/register", {
-        method: "POST",
-        body: { ...form, planId },
-      });
-      setRegistered(response.member);
-      await refreshMember();
+      if (hasSupabaseAuth() && supabase) {
+        const payload = buildSupabaseRegistrationPayload(form, planId, "email");
+        const { data, error } = await supabase.auth.signUp(payload);
+        if (error) throw error;
+        const nextMember = await resolveAuthMember(supabase, data.user);
+        setRegistered({ ...nextMember, verificationPending: !data.session });
+        if (data.session) await refreshMember();
+      } else {
+        const response = await apiRequest("/api/auth/register", {
+          method: "POST",
+          body: { ...form, planId },
+        });
+        setRegistered(response.member);
+        await refreshMember();
+      }
       track("registration_submit", { source: "membership_registration_page", plan: selectedPlan.id });
     } catch (error) {
-      setErrors((current) => ({ ...current, ...(error.details || {}), form: readableApiError(error) }));
+      setErrors((current) => ({ ...current, ...(error.details || {}), form: registrationErrorMessage(error) }));
     } finally {
       setSubmitting(false);
     }
@@ -104,7 +122,7 @@ export function MembershipRegistrationPage() {
     return <section className="confirmation-page"><div className="confirmation-card registration-success-card">
       <div className="success-icon"><Icon name="check" /></div><p className="eyebrow">REGISTRATION COMPLETE</p>
       <h1>Your personal Member ID is ready.</h1>
-      <p>Save this ID with the password you created. You can log in immediately; Store prices, bookings and checkout activate after annual payment is verified.</p>
+      <p>{registered.verificationPending ? "Your account has been created. Verify the email sent by Supabase to finish activation, then log in with email + password." : "Save this ID with the password you created. You can log in immediately; Store prices, bookings and checkout activate after annual payment is verified."}</p>
       <div className="issued-member-id"><span>YOUR MEMBER ID</span><strong>{registered.memberId}</strong><button type="button" onClick={copyMemberId}>{copied ? "Copied" : "Copy ID"}</button></div>
       <div className="registration-next-step"><span>{selectedPlan.name} annual membership</span><strong>{formatCurrency(selectedPlan.annualPrice)}</strong><small>{selectedPlan.potentialValueLabel} potential annual value · Terms apply</small></div>
       {paymentError && <div className="form-alert" role="alert"><Icon name="shield" /> {paymentError}</div>}
@@ -145,7 +163,7 @@ export function MembershipRegistrationPage() {
         {errors.consent && <span className="field-error" role="alert">{errors.consent}</span>}
         {errors.form && <div className="form-alert" role="alert"><Icon name="shield" /> {errors.form}</div>}
         <button className="button button-primary button-full button-large" type="submit" disabled={submitting}>{submitting ? "Creating secure account…" : "Create Member ID & Continue"}<Icon name="arrow" /></button>
-        <small>Your Store access activates only after payment verification. Do not enter medical or highly sensitive information here.</small>
+        <small>{hasSupabaseAuth() ? "Email login works once email auth is enabled in Supabase and the account email is verified if confirmation is turned on." : "Your Store access activates only after payment verification. Do not enter medical or highly sensitive information here."}</small>
       </form>
     </div>
   </section>;

@@ -6,9 +6,10 @@ import MembershipCard from "../components/MembershipCard";
 import { useApp } from "../components/app-provider";
 import { EmptyState, ProductCard, SectionHeading } from "../components/ui";
 import { Icon } from "../components/icons";
-import { catalogue, contactConfig, formatCurrency, plans, savingFor } from "../data/site-data";
-import { apiRequest, readableApiError } from "../lib/api";
+import { catalogue, contactConfig, formatCurrency, plans, pricingForItem } from "../data/site-data";
+import { apiRequest, HAS_API_BACKEND, readableApiError } from "../lib/api";
 import { beginPayment } from "../lib/payments";
+import { getSupabaseClient, hasSupabaseAuth } from "../lib/supabase";
 
 function dateLabel(value, fallback = "Activates after payment") {
   if (!value) return fallback;
@@ -49,7 +50,7 @@ function LoginPage() {
         <button className="button button-primary button-full" type="submit" disabled={submitting}>{submitting ? "Signing in securely…" : "Member Login"} <Icon name="arrow" /></button>
       </form>
       <div className="or-divider"><span>New to the Circle?</span></div><Link className="button button-secondary button-full" href="/membership-registration">Create Membership Account</Link>
-      <small className="auth-note"><Icon name="shield" /> Passwords are protected server-side and sessions use secure, HTTP-only cookies.</small>
+      <small className="auth-note"><Icon name="shield" /> {hasSupabaseAuth() ? "Auth sessions are handled by Supabase and stored securely in the browser session." : "Passwords are protected server-side and sessions use secure, HTTP-only cookies."}</small>
       <div className="auth-support"><span>Need help with your Member ID?</span><Link href="/about-support?intent=Membership%20support">Contact Support</Link></div>
     </div>
   </section>;
@@ -62,6 +63,12 @@ function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const loadAccount = async () => {
+    if (!HAS_API_BACKEND) {
+      setAccount({ member, orders: [], bookings: [] });
+      setError("");
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setAccount(await apiRequest("/api/account"));
@@ -166,13 +173,15 @@ function VerifyPage() {
 function ProductDetailPage() {
   const { slug = "" } = useParams();
   const item = catalogue.find((entry) => entry.slug === slug);
-  const { memberActive, addToCart, openBooking, requestGate, toggleSaved, saved, openWhatsApp, track } = useApp();
+  const { member, memberActive, addToCart, openBooking, requestGate, openPendingPaymentNotice, toggleSaved, saved, openWhatsApp, track } = useApp();
   useEffect(() => { if (item) track("product_view", { slug: item.slug }); }, [item, track]);
   if (!item) return <UtilityShell eyebrow="MEMBER STORE" title="Offer not found." copy="This catalogue item may have changed or been removed."><Link className="button button-primary" href="/store">Back to Store</Link></UtilityShell>;
-  const saving = savingFor(item);
+  const memberLoggedIn = Boolean(member);
+  const paymentPending = memberLoggedIn && !memberActive;
+  const { listPrice, memberPrice, saving } = pricingForItem(item);
   const transactionReady = item.verified && item.checkoutEnabled !== false;
-  const action = () => memberActive ? item.type === "Product" && transactionReady ? addToCart(item.slug) : openBooking({ slug: item.slug, source: "catalogue" }) : requestGate(`/store/${slug}`);
-  return <section className="product-detail-page"><div className="container breadcrumb"><Link href="/store">Member Store</Link><span>/</span><span>{item.category}</span></div><div className="container product-detail-grid"><div className="product-detail-image"><img src={item.image} alt={item.title} />{item.badge && <span className="image-badge">{item.badge}</span>}</div><div className="product-detail-copy"><div className="product-meta"><span>{item.brand}</span><span>{item.type}</span></div><h1>{item.title}</h1><p className="detail-description">{item.description}</p><div className={`detail-price ${memberActive && transactionReady ? "unlocked" : "locked"}`}>{memberActive && transactionReady ? <><span className="list-price">List price {formatCurrency(item.listPrice)}</span><strong>{formatCurrency(item.memberPrice)}</strong>{saving && <span className="saving-badge">You save {formatCurrency(saving)}</span>}</> : <><Icon name="lock" /><strong>{memberActive ? "Price awaiting approval" : "Member price locked"}</strong><span>{memberActive ? "Register interest and the team will update you when this offer is enabled." : "Register and activate membership to access protected pricing."}</span></>}</div><div className="detail-location"><Icon name="calendar" /><div><strong>Location & fulfilment</strong><span>{item.location}</span></div></div><ul className="check-list detail-inclusions">{item.inclusions.map((value) => <li key={value}><Icon name="check" /> {value}</li>)}</ul><div className="detail-actions"><button className="button button-primary button-large" onClick={action}>{memberActive ? transactionReady ? item.cta : "Register Interest" : "Login to Unlock"}<Icon name="arrow" /></button><button className={`icon-button detail-save ${saved.includes(item.slug) ? "saved" : ""}`} onClick={() => toggleSaved(item.slug)} aria-label="Save offer"><Icon name="heart" /></button></div><div className="terms-box"><strong>Partner terms</strong><p>{item.terms}</p><small>{transactionReady ? "Price and eligibility are rechecked securely before payment." : "Online payment remains disabled until partner, price and fulfilment approval are complete."}</small></div>{contactConfig.whatsappDigits ? <button className="text-link" onClick={() => openWhatsApp("booking")}>Need help with this offer? Chat on WhatsApp <Icon name="whatsapp" /></button> : <Link className="text-link" href="/about-support?intent=Order%20%2F%20booking%20support">Need help with this offer? Contact support <Icon name="arrow" /></Link>}</div></div><div className="container related-section"><SectionHeading eyebrow="MORE IN THE CIRCLE" title="You may also be interested in." /><div className="product-grid three-col">{catalogue.filter((entry) => entry.slug !== item.slug && (entry.category === item.category || entry.type === item.type)).slice(0, 3).map((entry) => <ProductCard key={entry.slug} item={entry} />)}</div></div></section>;
+  const action = () => !memberLoggedIn ? requestGate(`/store/${slug}`) : paymentPending ? openPendingPaymentNotice(`/store/${slug}`) : item.type === "Product" && transactionReady ? addToCart(item.slug) : openBooking({ slug: item.slug, source: "catalogue" });
+  return <section className="product-detail-page"><div className="container breadcrumb"><Link href="/store">Member Store</Link><span>/</span><span>{item.category}</span></div><div className="container product-detail-grid"><div className="product-detail-image"><img src={item.image} alt={item.title} />{item.badge && <span className="image-badge">{item.badge}</span>}</div><div className="product-detail-copy"><div className="product-meta"><span>{item.brand}</span><span>{item.type}</span></div><h1>{item.title}</h1><p className="detail-description">{item.description}</p><div className={`detail-price ${memberLoggedIn ? "unlocked" : "locked"}`}>{memberLoggedIn ? <><span className="list-price">MRP {formatCurrency(listPrice)}</span><strong>{formatCurrency(memberPrice)}</strong>{saving && <span className="saving-badge">You save {formatCurrency(saving)}</span>}</> : <><span className="list-price">MRP {formatCurrency(listPrice)}</span><div><Icon name="lock" /><strong>Member price locked</strong><span>Log in to view your 20% discounted member price.</span></div></>}</div><div className="detail-location"><Icon name="calendar" /><div><strong>Location & fulfilment</strong><span>{item.location}</span></div></div><ul className="check-list detail-inclusions">{item.inclusions.map((value) => <li key={value}><Icon name="check" /> {value}</li>)}</ul><div className="detail-actions"><button className={`button button-primary button-large ${paymentPending ? "is-disabled" : ""}`} onClick={action} aria-disabled={paymentPending}>{memberLoggedIn ? memberActive ? transactionReady ? item.cta : "Register Interest" : "Register Interest" : "Login to Unlock"}<Icon name="arrow" /></button><button className={`icon-button detail-save ${saved.includes(item.slug) ? "saved" : ""}`} onClick={() => toggleSaved(item.slug)} aria-label="Save offer"><Icon name="heart" /></button></div><div className="terms-box"><strong>Partner terms</strong><p>{item.terms}</p><small>{transactionReady ? "Price and eligibility are rechecked securely before payment." : "Online payment remains disabled until partner, price and fulfilment approval are complete."}</small></div>{contactConfig.whatsappDigits ? <button className="text-link" onClick={() => openWhatsApp("booking")}>Need help with this offer? Chat on WhatsApp <Icon name="whatsapp" /></button> : <Link className="text-link" href="/about-support?intent=Order%20%2F%20booking%20support">Need help with this offer? Contact support <Icon name="arrow" /></Link>}</div></div><div className="container related-section"><SectionHeading eyebrow="MORE IN THE CIRCLE" title="You may also be interested in." /><div className="product-grid three-col">{catalogue.filter((entry) => entry.slug !== item.slug && (entry.category === item.category || entry.type === item.type)).slice(0, 3).map((entry) => <ProductCard key={entry.slug} item={entry} />)}</div></div></section>;
 }
 
 function CartPage() {
@@ -222,15 +231,26 @@ function ConfirmationPage({ type }) {
 }
 
 function ForgotPasswordPage() {
+  const supabase = getSupabaseClient();
   const [memberId, setMemberId] = useState("");
   const [contact, setContact] = useState("");
   const [state, setState] = useState({ sending: false, sent: false, message: "", error: "" });
   async function submit(event) {
     event.preventDefault(); setState({ sending: true, sent: false, message: "", error: "" });
-    try { const response = await apiRequest("/api/auth/recover", { method: "POST", body: { memberId, contact } }); setState({ sending: false, sent: true, message: response.message, error: "" }); }
+    try {
+      if (hasSupabaseAuth() && supabase) {
+        if (!contact.includes("@")) throw new Error("Supabase password reset works through registered email.");
+        const { error } = await supabase.auth.resetPasswordForEmail(contact, { redirectTo: `${window.location.origin}/login` });
+        if (error) throw error;
+        setState({ sending: false, sent: true, message: "Password reset email has been sent if this email is registered.", error: "" });
+        return;
+      }
+      const response = await apiRequest("/api/auth/recover", { method: "POST", body: { memberId, contact } });
+      setState({ sending: false, sent: true, message: response.message, error: "" });
+    }
     catch (error) { setState({ sending: false, sent: false, message: "", error: readableApiError(error) }); }
   }
-  return <UtilityShell eyebrow="MEMBER ACCESS" title="Reset your password." copy="Enter your Member ID and the email or mobile number used during registration.">{state.sent ? <div className="success-inline"><Icon name="check" /><div><h3>Recovery request received.</h3><p>{state.message}</p></div></div> : <form className="narrow-form" onSubmit={submit}><label className="field"><span>Member ID<i className="required-marker" aria-hidden="true">*</i></span><input value={memberId} onChange={(event) => setMemberId(event.target.value)} required autoComplete="username" /></label><label className="field"><span>Registered email or mobile<i className="required-marker" aria-hidden="true">*</i></span><input value={contact} onChange={(event) => setContact(event.target.value)} required autoComplete="email" /></label>{state.error && <div className="form-alert" role="alert">{state.error}</div>}<button className="button button-primary button-full" disabled={state.sending}>{state.sending ? "Submitting…" : "Send Recovery Instructions"}</button></form>}<Link className="text-link" href="/login">Back to Member Login</Link></UtilityShell>;
+  return <UtilityShell eyebrow="MEMBER ACCESS" title="Reset your password." copy={hasSupabaseAuth() ? "Enter your registered email address to receive a password reset link." : "Enter your Member ID and the email or mobile number used during registration."}>{state.sent ? <div className="success-inline"><Icon name="check" /><div><h3>Recovery request received.</h3><p>{state.message}</p></div></div> : <form className="narrow-form" onSubmit={submit}>{!hasSupabaseAuth() && <label className="field"><span>Member ID<i className="required-marker" aria-hidden="true">*</i></span><input value={memberId} onChange={(event) => setMemberId(event.target.value)} required autoComplete="username" /></label>}<label className="field"><span>{hasSupabaseAuth() ? "Registered email" : "Registered email or mobile"}<i className="required-marker" aria-hidden="true">*</i></span><input value={contact} onChange={(event) => setContact(event.target.value)} required autoComplete="email" /></label>{state.error && <div className="form-alert" role="alert">{state.error}</div>}<button className="button button-primary button-full" disabled={state.sending}>{state.sending ? "Submitting…" : "Send Recovery Instructions"}</button></form>}<Link className="text-link" href="/login">Back to Member Login</Link></UtilityShell>;
 }
 
 const legalContent = {

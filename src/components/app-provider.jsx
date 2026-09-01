@@ -1,8 +1,9 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { catalogue, contactConfig, events, formatCurrency, pageMessages, plans } from "../data/site-data";
-import { apiRequest, readableApiError } from "../lib/api";
+import { apiRequest, HAS_API_BACKEND, readableApiError } from "../lib/api";
 import { beginPayment } from "../lib/payments";
+import { getSupabaseClient, hasSupabaseAuth, mapAuthUserToMember, resolveAuthMember, resolveSupabaseAuthIdentifier } from "../lib/supabase";
 import { Icon } from "./icons";
 import Link from "./Link";
 import BrandLogo from "./BrandLogo";
@@ -38,9 +39,27 @@ function AppProvider({ children }) {
   const [joinSource, setJoinSource] = useState("Website organic");
   const [joinPlan, setJoinPlan] = useState("community");
   const [bookingTarget, setBookingTarget] = useState(null);
+  const [pendingPaymentOpen, setPendingPaymentOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const supabase = getSupabaseClient();
 
   const refreshMember = useCallback(async () => {
+    if (hasSupabaseAuth() && supabase) {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) throw error;
+        const nextMember = await resolveAuthMember(supabase, data.user);
+        setMember(nextMember);
+        setPaymentConfigured(HAS_API_BACKEND);
+        return nextMember;
+      } catch {
+        setMember(null);
+        setPaymentConfigured(HAS_API_BACKEND);
+        return null;
+      } finally {
+        setAuthLoading(false);
+      }
+    }
     try {
       const response = await apiRequest("/api/auth/session");
       setMember(response.member || null);
@@ -52,7 +71,7 @@ function AppProvider({ children }) {
     } finally {
       setAuthLoading(false);
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     refreshMember();
@@ -66,6 +85,15 @@ function AppProvider({ children }) {
     setStorageReady(true);
   }, [refreshMember]);
 
+  useEffect(() => {
+    if (!supabase) return undefined;
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setMember(await resolveAuthMember(supabase, session?.user || null));
+      setAuthLoading(false);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [supabase]);
+
   useEffect(() => setMobileOpen(false), [pathname]);
   useEffect(() => {
     if (storageReady) localStorage.setItem("olc_cart", JSON.stringify(cart));
@@ -74,13 +102,14 @@ function AppProvider({ children }) {
     if (storageReady) localStorage.setItem("olc_saved", JSON.stringify(saved));
   }, [saved, storageReady]);
   useEffect(() => {
-    if (!gateOpen && !joinOpen && !bookingTarget) return undefined;
+    if (!gateOpen && !joinOpen && !bookingTarget && !pendingPaymentOpen) return undefined;
     const previousFocus = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleModalKey = (event) => {
       if (event.key === "Escape") {
         if (bookingTarget) setBookingTarget(null);
+        else if (pendingPaymentOpen) setPendingPaymentOpen(false);
         else if (joinOpen) setJoinOpen(false);
         else setGateOpen(false);
         return;
@@ -105,7 +134,7 @@ function AppProvider({ children }) {
       document.body.style.overflow = previousOverflow;
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
-  }, [bookingTarget, gateOpen, joinOpen]);
+  }, [bookingTarget, gateOpen, joinOpen, pendingPaymentOpen]);
 
   const track = useCallback((event, payload = {}) => {
     window.dispatchEvent(new CustomEvent("olc:analytics", { detail: { event, payload } }));
@@ -129,7 +158,31 @@ function AppProvider({ children }) {
     track("store_gate_view", { returnTo, signedIn: Boolean(member), active: Boolean(member?.canAccessStore) });
   }
 
+  function openPendingPaymentNotice(returnTo = pathname || "/store") {
+    sessionStorage.setItem("olc_return_to", returnTo);
+    setPendingPaymentOpen(true);
+    track("membership_payment_pending_notice", { returnTo, signedIn: Boolean(member) });
+  }
+
   async function login(credentials, destination) {
+    if (hasSupabaseAuth() && supabase) {
+      const identifier = await resolveSupabaseAuthIdentifier(credentials.identifier);
+      const { data, error } = await supabase.auth.signInWithPassword(
+        identifier.type === "phone"
+          ? { phone: identifier.value, password: credentials.password }
+          : { email: identifier.value, password: credentials.password },
+      );
+      if (error) throw error;
+      const nextMember = await resolveAuthMember(supabase, data.user);
+      setMember(nextMember);
+      setGateOpen(false);
+      const requested = destination || sessionStorage.getItem("olc_return_to");
+      sessionStorage.removeItem("olc_return_to");
+      const returnTo = nextMember?.canAccessStore ? requested || "/account" : "/account";
+      toast(nextMember?.canAccessStore ? `Welcome back, ${nextMember.name.split(" ")[0]}.` : "Welcome back. Complete payment to activate member access.");
+      navigate(returnTo);
+      return nextMember;
+    }
     const response = await apiRequest("/api/auth/login", { method: "POST", body: credentials });
     setMember(response.member);
     setGateOpen(false);
@@ -143,7 +196,8 @@ function AppProvider({ children }) {
 
   async function logout() {
     try {
-      await apiRequest("/api/auth/logout", { method: "POST" });
+      if (hasSupabaseAuth() && supabase) await supabase.auth.signOut();
+      else await apiRequest("/api/auth/logout", { method: "POST" });
     } finally {
       setMember(null);
       setCart([]);
@@ -218,6 +272,7 @@ function AppProvider({ children }) {
     cartCount,
     openJoin,
     requestGate,
+    openPendingPaymentNotice,
     login,
     logout,
     refreshMember,
@@ -251,6 +306,11 @@ function AppProvider({ children }) {
     />}
     {joinOpen && <JoinModal source={joinSource} defaultPlan={joinPlan} onClose={() => setJoinOpen(false)} />}
     {bookingTarget && <BookingModal target={bookingTarget} onClose={() => setBookingTarget(null)} />}
+    {pendingPaymentOpen && <PendingPaymentModal
+      member={member}
+      onClose={() => setPendingPaymentOpen(false)}
+      onAccount={() => { setPendingPaymentOpen(false); navigate("/account"); }}
+    />}
     <div className={`toast ${toastMessage ? "is-visible" : ""}`} role="status" aria-live="polite"><Icon name="check" /><span>{toastMessage}</span></div>
   </AppContext.Provider>;
 }
@@ -304,6 +364,22 @@ function AccessGate({ member, onClose, onLogin, onJoin, onAccount }) {
         <Link href="/membership" onClick={onClose}>Compare all plans</Link>
       </div>
       <small>Store access is activated only after membership payment is verified.</small>
+    </section>
+  </div>;
+}
+
+function PendingPaymentModal({ member, onClose, onAccount }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="modal gate-modal" role="dialog" aria-modal="true" aria-labelledby="pending-payment-title" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="modal-close" onClick={onClose} aria-label="Close payment pending dialog" autoFocus><Icon name="close" /></button>
+      <div className="modal-icon"><Icon name="lock" /></div><p className="eyebrow">MEMBERSHIP PAYMENT</p>
+      <h2 id="pending-payment-title">Membership Payment still pending</h2>
+      <p>{member?.memberId ? `Your account ${member.memberId} is created, but annual membership payment is still pending.` : "Your annual membership payment is still pending."} Complete payment to activate Register Interest, bookings, prices and checkout.</p>
+      <div className="gate-actions">
+        <button className="button button-primary" onClick={onAccount}>Go to My Account</button>
+        <Link href="/membership" onClick={onClose}>Compare all plans</Link>
+      </div>
+      <small>Member actions activate only after membership payment is verified.</small>
     </section>
   </div>;
 }

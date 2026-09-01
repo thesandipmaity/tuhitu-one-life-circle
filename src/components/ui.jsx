@@ -3,7 +3,7 @@ import {
   comparisonRows,
   formatCurrency,
   plans,
-  savingFor
+  pricingForItem
 } from "../data/site-data";
 import { useApp } from "./app-provider";
 import { Icon } from "./icons";
@@ -130,13 +130,15 @@ function PlanComparisonTable({ source = "Plan comparison" }) {
     </div>;
 }
 function ProductCard({ item, compact = false }) {
-  const { member, memberActive, saved, toggleSaved, addToCart, openBooking, requestGate, track } = useApp();
-  const saving = savingFor(item);
+  const { member, memberActive, saved, toggleSaved, addToCart, openBooking, requestGate, openPendingPaymentNotice, track } = useApp();
+  const { listPrice, memberPrice, saving } = pricingForItem(item);
   const isSaved = saved.includes(item.slug);
   const transactionReady = item.verified && item.checkoutEnabled !== false;
   const memberLoggedIn = Boolean(member);
+  const paymentPending = memberLoggedIn && !memberActive;
   function action() {
-    if (!memberActive) return requestGate(`/store/${item.slug}`);
+    if (!memberLoggedIn) return requestGate(`/store/${item.slug}`);
+    if (paymentPending) return openPendingPaymentNotice(`/store/${item.slug}`);
     if (item.type === "Product" && transactionReady) addToCart(item.slug);
     else openBooking({ slug: item.slug, source: "catalogue" });
   }
@@ -168,14 +170,19 @@ function ProductCard({ item, compact = false }) {
         <p className="product-location">{item.location}</p>
         {memberLoggedIn ? <div className="price-unlock">
             <div>
-              <span className="list-price">{formatCurrency(item.listPrice)}</span>
-              <strong>{formatCurrency(item.memberPrice)}</strong>
+              <span className="list-price">MRP {formatCurrency(listPrice)}</span>
+              <strong>{formatCurrency(memberPrice)}</strong>
             </div>
             {saving && <span className="saving-badge">Save {formatCurrency(saving)}</span>}
-          </div> : <button className="locked-price" onClick={() => requestGate(`/store/${item.slug}`)}>
-            <Icon name="lock" /> Member price locked
-          </button>}
-        <button className="button button-card" onClick={action}>
+          </div> : <div className="price-unlock locked-preview">
+            <div>
+              <span className="list-price">MRP {formatCurrency(listPrice)}</span>
+            </div>
+            <button className="locked-price" onClick={() => requestGate(`/store/${item.slug}`)}>
+              <Icon name="lock" /> Member price locked
+            </button>
+          </div>}
+        <button className={`button button-card ${paymentPending ? "is-disabled" : ""}`} onClick={action} aria-disabled={paymentPending}>
           {memberLoggedIn ? memberActive && transactionReady ? item.cta : "Register Interest" : "Login to Unlock"} <Icon name="arrow" />
         </button>
       </div>

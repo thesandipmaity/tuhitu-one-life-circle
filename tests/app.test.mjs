@@ -17,21 +17,21 @@ const requiredRoutes = [
 
 test("production bundle contains the current brand and inclusive visual assets", async () => {
   await Promise.all([
-    access("dist/client/index.html"),
-    access("dist/client/assets/brand/one-life-circle-logo.png"),
-    access("dist/client/assets/brand/tuhitu-bliss-logo.webp"),
-    access("dist/client/assets/brand/biome-plus-logo.webp"),
-    access("dist/client/assets/inclusive-hero.webp"),
-    access("dist/client/assets/intergenerational-community.webp"),
-    access("dist/client/assets/young-everyday-choices.webp"),
-    access("dist/client/assets/pizza-making-workshop.webp"),
-    access("dist/client/assets/cookie-making-workshop.webp"),
-    access("dist/client/assets/tiramisu-making-workshop.webp"),
+    access("dist/index.html"),
+    access("dist/assets/brand/one-life-circle-logo.png"),
+    access("dist/assets/brand/tuhitu-bliss-logo.webp"),
+    access("dist/assets/brand/biome-plus-logo.webp"),
+    access("dist/assets/inclusive-hero.webp"),
+    access("dist/assets/intergenerational-community.webp"),
+    access("dist/assets/young-everyday-choices.webp"),
+    access("dist/assets/pizza-making-workshop.webp"),
+    access("dist/assets/cookie-making-workshop.webp"),
+    access("dist/assets/tiramisu-making-workshop.webp"),
     access("dist/server/index.js"),
     access("dist/supabase/schema.sql"),
   ]);
 
-  const html = await readFile("dist/client/index.html", "utf8");
+  const html = await readFile("dist/index.html", "utf8");
   assert.match(html, /One Life Circle/);
   assert.match(html, /assets\/brand\/one-life-circle-logo\.jpeg/);
 });
@@ -102,15 +102,21 @@ test("router source contains all required core and protected journeys", async ()
 });
 
 test("member access uses the real API and has no browser-only review account", async () => {
-  const [provider, login, worker] = await Promise.all([
+  const [provider, login, worker, supabase] = await Promise.all([
     readFile("src/components/app-provider.jsx", "utf8"),
     readFile("src/pages/utility-pages.jsx", "utf8"),
     readFile("worker/api.js", "utf8"),
+    readFile("src/lib/supabase.js", "utf8"),
   ]);
   assert.match(provider, /api\/auth\/session/);
+  assert.match(provider, /resolveSupabaseAuthIdentifier/);
   assert.match(provider, /api\/auth\/login/);
+  assert.match(worker, /api\/auth\/resolve-login/);
   assert.match(worker, /findMemberForLogin/);
   assert.match(worker, /derivePassword/);
+  assert.match(supabase, /return "member_id"/);
+  assert.match(supabase, /OLC-\[A-Z0-9\]\{1,3\}/);
+  assert.match(supabase, /apiRequest\("\/api\/auth\/resolve-login"/);
   assert.match(worker, /member\.status !== "active"/);
   assert.doesNotMatch(`${provider}\n${login}`, /OLC-PKL|loginDemo|View Demo Member|any non-empty/i);
 });

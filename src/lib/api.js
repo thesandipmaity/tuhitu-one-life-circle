@@ -1,4 +1,5 @@
 const API_BASE = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+export const HAS_API_BACKEND = Boolean(API_BASE);
 
 export class ApiRequestError extends Error {
   constructor(message, { code = "REQUEST_FAILED", details, status = 0 } = {}) {
@@ -39,5 +40,6 @@ export function formDataObject(form) {
 
 export function readableApiError(error, fallback = "Something went wrong. Please try again.") {
   if (error instanceof ApiRequestError) return error.message;
+  if (error instanceof Error && error.message) return error.message;
   return fallback;
 }

@@ -21,6 +21,7 @@ import {
   listMemberBookings,
   listMemberOrders,
   rateLimit,
+  resolveSupabaseMemberLogin,
   sessionMember,
   updateBookingStatus,
   updateOrderStatus,
@@ -199,6 +200,50 @@ async function login(env, request) {
   const session = await createSession(db, member.id, request, Boolean(payload.remember));
   await audit(db, "auth.login_succeeded", "member", member.member_id, member.id);
   return json({ ok: true, member: publicMember(member) }, 200, { "set-cookie": session.cookie });
+}
+
+function supabaseLoginLookup(identifier) {
+  const value = cleanText(identifier, 254);
+  if (value.includes("@")) return { field: "email", value: normalizeEmail(value), type: "email" };
+  if (/^OLC-/i.test(value)) return { field: "member_id", value: value.toUpperCase(), type: "member_id" };
+  return { field: "mobile", value, type: "mobile" };
+}
+
+async function resolveSupabaseLogin(env, request) {
+  const db = database(env);
+  if (db.kind !== "supabase") {
+    throw new ApiError(404, "AUTH_RESOLUTION_UNAVAILABLE", "This login mode is unavailable.");
+  }
+  await rateLimit(db, request, "supabase-login-resolve", 10, 15 * 60);
+  const payload = await readJson(request);
+  const lookup = supabaseLoginLookup(payload.identifier);
+  if (!lookup.value) {
+    throw new ApiError(400, "MISSING_CREDENTIALS", "Enter your Member ID, email or mobile number.");
+  }
+  const profile = await resolveSupabaseMemberLogin(db, lookup.field, lookup.value);
+  if (!profile) {
+    throw new ApiError(401, "INVALID_CREDENTIALS", "The login details did not match an account.");
+  }
+  if (["suspended", "cancelled"].includes(String(profile.status || "").toLowerCase())) {
+    throw new ApiError(403, "ACCOUNT_INACTIVE", "This account is not active. Please contact member support.");
+  }
+
+  const email = cleanText(profile.email, 254).toLowerCase();
+  const mobile = cleanText(profile.mobile, 24);
+  const usePhone = lookup.type === "mobile" || (!email && Boolean(mobile));
+  const authIdentifier = usePhone ? mobile : email;
+  const authType = usePhone ? "phone" : "email";
+
+  if (!authIdentifier) {
+    throw new ApiError(401, "INVALID_CREDENTIALS", "The login details did not match an account.");
+  }
+
+  return json({
+    ok: true,
+    authIdentifier,
+    authType,
+    memberId: profile.member_id || null,
+  });
 }
 
 async function logout(env, request) {
@@ -553,6 +598,7 @@ export async function handleApi(request, env) {
     }
     if (path === "/api/auth/register" && method === "POST") return await register(env, request);
     if (path === "/api/auth/login" && method === "POST") return await login(env, request);
+    if (path === "/api/auth/resolve-login" && method === "POST") return await resolveSupabaseLogin(env, request);
     if (path === "/api/auth/logout" && method === "POST") return await logout(env, request);
     if (path === "/api/auth/session" && method === "GET") return await getSession(env, request);
     if (path === "/api/auth/recover" && method === "POST") return await recoverAccess(env, request);
