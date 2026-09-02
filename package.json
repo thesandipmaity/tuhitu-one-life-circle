@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/package-sites.mjs && node scripts/validate-sites-build.mjs",
     "preview": "vite preview",
-    "start": "vite preview",
+    "start": "node server/index.js",
     "whatsapp:bridge": "node scripts/baileys-bridge.mjs",
     "lint": "eslint .",
     "test": "npm run build && node --test tests/*.test.mjs",

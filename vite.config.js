@@ -98,15 +98,15 @@ function localApiPlugin(rawEnv) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    define: { __OLC_USE_MONGO_AUTH__: JSON.stringify(Boolean(env.MONGODB_URI)) },
+    define: { __OLC_USE_MONGO_AUTH__: JSON.stringify(Boolean(env.MONGODB_URI || env.VITE_AUTH_PROVIDER === "mongodb")) },
     plugins: [react(), localApiPlugin({ ...env, handleApi: env.MONGODB_URI ? handleMongoApi : handleApi })],
     server: {
       host: "0.0.0.0",
-      allowedHosts: ["terminal.local"],
+      allowedHosts: ["terminal.local", "tuhitu-one-life-circle.onrender.com", "tuhitu-one-life-circle-1.onrender.com", "https://tuhitu-one-life-circle.onrender.com/"],
     },
     preview: {
       host: "0.0.0.0",
-      allowedHosts: ["terminal.local"],
+      allowedHosts: ["terminal.local", "tuhitu-one-life-circle.onrender.com", "tuhitu-one-life-circle-1.onrender.com"],
     },
     build: {
       outDir: "dist",

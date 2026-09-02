@@ -1,7 +1,6 @@
 import { MongoClient } from "mongodb";
 import {
   ApiError,
-  assertSameOrigin,
   buildMemberId,
   cleanText,
   clearSessionCookie,
@@ -148,7 +147,10 @@ export async function handleMongoApi(request, env) {
   try {
     const path = new URL(request.url).pathname;
     const method = request.method.toUpperCase();
-    if (method !== "GET") assertSameOrigin(request);
+    const origin = request.headers.get("origin");
+    if (method !== "GET" && origin && origin !== new URL(request.url).origin && origin !== env.FRONTEND_ORIGIN) {
+      throw new ApiError(403, "INVALID_ORIGIN", "This request could not be verified.");
+    }
     if (path === "/api/health") return json({ ok: true, service: "One Life Circle", database: "mongodb" });
     if (path === "/api/auth/register" && method === "POST") return register(env, request);
     if (path === "/api/auth/login" && method === "POST") return login(env, request);
