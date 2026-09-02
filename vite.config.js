@@ -102,11 +102,19 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), localApiPlugin({ ...env, handleApi: env.MONGODB_URI ? handleMongoApi : handleApi })],
     server: {
       host: "0.0.0.0",
-      allowedHosts: ["terminal.local", "https://tuhitu-one-life-circle-render.onrender.com/"],
+      allowedHosts: [
+        "terminal.local",
+        "tuhitu-one-life-circle-render.onrender.com",
+        "tuhitu-one-life-circle-n4xq.onrender.com",
+      ],
     },
     preview: {
       host: "0.0.0.0",
-      allowedHosts: ["terminal.local", "https://tuhitu-one-life-circle-n4xq.onrender.com/"],
+      allowedHosts: [
+        "terminal.local",
+        "tuhitu-one-life-circle-render.onrender.com",
+        "tuhitu-one-life-circle-n4xq.onrender.com",
+      ],
     },
     build: {
       outDir: "dist",
