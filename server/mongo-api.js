@@ -151,7 +151,11 @@ export async function handleMongoApi(request, env) {
     if (method !== "GET" && origin && origin !== new URL(request.url).origin && origin !== env.FRONTEND_ORIGIN) {
       throw new ApiError(403, "INVALID_ORIGIN", "This request could not be verified.");
     }
-    if (path === "/api/health") return json({ ok: true, service: "One Life Circle", database: "mongodb" });
+    if (path === "/api/health") {
+      const db = await database(env);
+      await db.command({ ping: 1 });
+      return json({ ok: true, service: "One Life Circle", database: "mongodb" });
+    }
     if (path === "/api/auth/register" && method === "POST") return register(env, request);
     if (path === "/api/auth/login" && method === "POST") return login(env, request);
     if (path === "/api/auth/logout" && method === "POST") {
@@ -161,5 +165,8 @@ export async function handleMongoApi(request, env) {
     if (path === "/api/auth/session" && method === "GET") { const member = await sessionMember(await database(env), request); return json({ ok: true, member: member ? publicMember(member) : null, paymentConfigured: false }); }
     if (path === "/api/account" && method === "GET") { const member = await sessionMember(await database(env), request, true); return json({ ok: true, member: publicMember(member), orders: [], bookings: [] }); }
     throw new ApiError(404, "API_NOT_FOUND", "The requested service was not found.");
-  } catch (error) { return apiErrorResponse(error); }
+  } catch (error) {
+    console.error("[One Life Circle Mongo API]", error);
+    return apiErrorResponse(error);
+  }
 }

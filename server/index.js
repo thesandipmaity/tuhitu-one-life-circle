@@ -44,7 +44,8 @@ http.createServer(async (req, res) => {
     const response = await handleMongoApi(request, { ...env, FRONTEND_ORIGIN: env.FRONTEND_ORIGIN });
     res.writeHead(response.status, { ...Object.fromEntries(response.headers), ...cors });
     res.end(Buffer.from(await response.arrayBuffer()));
-  } catch {
+  } catch (error) {
+    console.error("[One Life Circle API]", error);
     res.writeHead(500, { "content-type": "application/json", ...cors });
     res.end(JSON.stringify({ ok: false, error: { code: "INTERNAL_ERROR", message: "The request could not be completed." } }));
   }
