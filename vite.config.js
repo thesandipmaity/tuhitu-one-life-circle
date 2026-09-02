@@ -106,7 +106,7 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host: "0.0.0.0",
-      allowedHosts: ["terminal.local", "tuhitu-one-life-circle.onrender.com", "tuhitu-one-life-circle-1.onrender.com"],
+      allowedHosts: ["terminal.local", "tuhitu-one-life-circle.onrender.com", "tuhitu-one-life-circle-1.onrender.com", "https://tuhitu-one-life-circle-n4xq.onrender.com/"],
     },
     build: {
       outDir: "dist",

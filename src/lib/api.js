@@ -23,6 +23,12 @@ export async function apiRequest(path, options = {}) {
       : options.body,
   });
   const payload = await response.json().catch(() => null);
+  if (!payload || typeof payload !== "object") {
+    throw new ApiRequestError("The API did not return a valid response. Set VITE_API_BASE_URL to your deployed backend URL and redeploy the frontend.", {
+      code: "API_CONFIGURATION_ERROR",
+      status: response.status,
+    });
+  }
   if (!response.ok || payload?.ok === false) {
     const error = payload?.error || {};
     throw new ApiRequestError(error.message || "The request could not be completed.", {
